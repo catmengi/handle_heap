@@ -44,14 +44,6 @@ typedef struct{
     mm_handle_metablock* info;
 }mm_handle;
 
-//================= PRIVATE API ================================
-
-void mm_auto_unlock(mm_handle* handle); //same as unlock but exist only for auto_unlock macro
-
-//==============================================================
-
-#define auto_unlock __attribute__((cleanup(mm_auto_unlock))) //defined to automaticly unlock handle at scope exit
-
 mm_handle mm_alloc(size_t size); //allocate memory sized by size, allocation is alligned based on internal define of HANDLE_HEAP_MINALLOC
 
 mm_handle mm_realloc(mm_handle handle, size_t size); //realloc handle to size

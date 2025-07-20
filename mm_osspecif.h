@@ -32,6 +32,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <stdio.h>
+
 //OS SPECIFIC CODE!  ======================================================================================================
 
 typedef struct{
@@ -52,6 +54,10 @@ static inline void recursive_mutex_lock(recursive_mutex_t* mutex){
 
 static inline void recursive_mutex_unlock(recursive_mutex_t* mutex){
     pthread_mutex_unlock(&mutex->impl);
+}
+
+static inline int recursive_mutex_trylock(recursive_mutex_t* mutex){
+    return pthread_mutex_trylock(&mutex->impl);
 }
 
 static inline void qsort_impl(void* base, size_t num, size_t size, int (*compare) (const void *, const void *)){
