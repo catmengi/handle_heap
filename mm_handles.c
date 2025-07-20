@@ -24,30 +24,8 @@
 
 
 
-#include <assert.h>
-#include <stdatomic.h>
-#include <pthread.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-
 #include "mm_handles.h"
-
-static void qsort_impl(void* base, size_t num, size_t size, int (*compare) (const void *, const void *)){
-    qsort(base,num,size,compare);
-}
-
-static void random_buf(void* buf, size_t nbytes){
-    arc4random_buf(buf,nbytes);
-}
-
-enum{
-    MM_HANDLE_SERIALIZE_FUNC,
-    MM_HANDLE_DESERIALIZE_FUNC,
-    MM_HANDLE_META_MAX,
-}mm_metadata_blocks;
+#include "mm_osspecif.h"
 
 typedef struct _mm_handle_metablock{
     int huid; //handle unique ID
@@ -68,16 +46,11 @@ typedef struct _mm_handle_metablock{
         atomic_int counter;
     }refcount;
 
-    pthread_mutex_t lock;
+    recursive_mutex_t lock;
     bool used;
 }mm_handle_metablock;
 
-
-
-#define HANDLE_HEAP_SIZE (1 * 1024 * 1024)
-#define HANDLE_HEAP_MINALLOC 128
-
-static pthread_mutex_t g_heap_mutex = PTHREAD_MUTEX_INITIALIZER;
+static recursive_mutex_t g_heap_mutex = PTHREAD_MUTEX_INITIALIZER;
 static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
 static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
 
@@ -85,21 +58,15 @@ static size_t g_blocks_availible = sizeof(g_handle_metablocks) / sizeof(g_handle
 
 __attribute__((constructor))
 static void init_metablocks_lock(void){
-    pthread_mutexattr_t attr;
-    pthread_mutexattr_init(&attr);
-    pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
-
-    pthread_mutex_init(&g_heap_mutex,&attr);
+    recursive_mutex_init(&g_heap_mutex);
 
     for(int i = 0; i < sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]); i++){
-        pthread_mutex_init(&g_handle_metablocks[i].lock,&attr);
+        recursive_mutex_init(&g_handle_metablocks[i].lock);
     }
-
-    pthread_mutexattr_destroy(&attr);
 }
 
 static mm_handle_metablock* find_free_metablock(){
-    pthread_mutex_lock(&g_heap_mutex);
+    recursive_mutex_lock(&g_heap_mutex);
 
     mm_handle_metablock* free_block = NULL;
 
@@ -110,7 +77,7 @@ static mm_handle_metablock* find_free_metablock(){
         }
     }
 
-    pthread_mutex_unlock(&g_heap_mutex);
+    recursive_mutex_unlock(&g_heap_mutex);
     return free_block;
 }
 
@@ -122,7 +89,7 @@ static uintptr_t nextby (uintptr_t value, uintptr_t by) {
 }
 
 static void* find_free_heap_start(int size){
-    pthread_mutex_lock(&g_heap_mutex);
+    recursive_mutex_lock(&g_heap_mutex);
 
     uint8_t* free_start = &g_handle_heap[0];
     int alligned_size = nextby(size, HANDLE_HEAP_MINALLOC);
@@ -134,14 +101,14 @@ static void* find_free_heap_start(int size){
                 free_start = g_handle_metablocks[i].ptr + g_handle_metablocks[i].alligned_size;
 
                 if(free_start >= &g_handle_heap[HANDLE_HEAP_SIZE] || &g_handle_heap[HANDLE_HEAP_SIZE] - free_start < alligned_size) {
-                    pthread_mutex_unlock(&g_heap_mutex);
+                    recursive_mutex_unlock(&g_heap_mutex);
                     return NULL;
                 }
             }
         }
     }
 
-    pthread_mutex_unlock(&g_heap_mutex);
+    recursive_mutex_unlock(&g_heap_mutex);
     return free_start;
 }
 
@@ -156,9 +123,7 @@ static int compactor_sort(const void* a, const void* b){
 }
 
 static void compact_heap(){
-    pthread_mutex_lock(&g_heap_mutex);
-
-    printf("triggered compact!\n");
+    recursive_mutex_lock(&g_heap_mutex);
 
     int sorted_indices[sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0])];
     for(int i = 0; i < sizeof(sorted_indices) / sizeof(sorted_indices[0]); i++){
@@ -175,26 +140,26 @@ static void compact_heap(){
         //we can be sure that number of elements in sorted_indices == number of elements in g_handle_metablocks
         if(g_handle_metablocks[sorted_indices[i]].used && move_to != g_handle_metablocks[sorted_indices[i]].ptr){
 
-            pthread_mutex_lock(&g_handle_metablocks[sorted_indices[i]].lock);
+            recursive_mutex_lock(&g_handle_metablocks[sorted_indices[i]].lock);
 
             memmove(move_to,g_handle_metablocks[sorted_indices[i]].ptr,g_handle_metablocks[sorted_indices[i]].alligned_size);
             g_handle_metablocks[sorted_indices[i]].ptr = move_to;
 
             move_to += g_handle_metablocks[sorted_indices[i]].alligned_size;
 
-            pthread_mutex_unlock(&g_handle_metablocks[sorted_indices[i]].lock);
+            recursive_mutex_unlock(&g_handle_metablocks[sorted_indices[i]].lock);
         }
     }
 
-    pthread_mutex_unlock(&g_heap_mutex);
+    recursive_mutex_unlock(&g_heap_mutex);
 }
 
 mm_handle mm_alloc(size_t size){
-    assert(size != 0);
+    mm_assert(size != 0);
 
-    pthread_mutex_lock(&g_heap_mutex);
+    recursive_mutex_lock(&g_heap_mutex);
 
-    assert(g_blocks_availible > 0);
+    mm_assert(g_blocks_availible > 0);
     g_blocks_availible -= (nextby(size,HANDLE_HEAP_MINALLOC) / HANDLE_HEAP_MINALLOC);
 
     mm_handle_metablock* metablock = find_free_metablock();
@@ -202,15 +167,14 @@ mm_handle mm_alloc(size_t size){
     int retry_count = 0;
     while((metablock->ptr = find_free_heap_start(size)) == NULL){
         compact_heap();
-        assert(retry_count++ == 0 && "Cannot allocate enough space, FIX API TO NOT CRASH WHOLE DEVICE!");
+        mm_assert(retry_count++ == 0 && "Cannot allocate enough space, FIX API TO NOT CRASH WHOLE DEVICE!");
     }
 
     metablock->alloc_size = size;
     metablock->alligned_size = nextby(metablock->alloc_size,HANDLE_HEAP_MINALLOC);
-
+    memset(metablock->metadata,0,sizeof(metablock->metadata));
     random_buf(&metablock->huid,sizeof(metablock->huid));
 
-    memset(metablock->metadata,0,sizeof(metablock->metadata));
 
     metablock->used = true;
 
@@ -219,7 +183,7 @@ mm_handle mm_alloc(size_t size){
         .info = metablock,
     };
 
-    pthread_mutex_unlock(&g_heap_mutex);
+    recursive_mutex_unlock(&g_heap_mutex);
 
     return handle;
 }
@@ -232,11 +196,11 @@ size_t mm_size(mm_handle handle){
 
         return handle.info->alloc_size;
     }
-    assert(0 && "Usage of invalid handle! mm_size");
+    mm_assert(0 && "Usage of invalid handle! mm_size");
 }
 
 mm_handle mm_realloc(mm_handle handle, size_t size){
-    pthread_mutex_lock(&g_heap_mutex);
+    recursive_mutex_lock(&g_heap_mutex);
 
     auto_unlock mm_handle auto_handle = handle;
     mm_lock(auto_handle);
@@ -250,14 +214,14 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
         if(mblock->alligned_size == new_alligned_size){
             mblock->alloc_size = size;
 
-            pthread_mutex_unlock(&g_heap_mutex);
+            recursive_mutex_unlock(&g_heap_mutex);
             return auto_handle;
         } else {
             if(mblock->alligned_size > new_alligned_size){
                 mblock->alligned_size = new_alligned_size;
                 mblock->alloc_size = size;
 
-                pthread_mutex_unlock(&g_heap_mutex);
+                recursive_mutex_unlock(&g_heap_mutex);
                 return auto_handle;
             }
 
@@ -276,7 +240,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
                     mblock->alligned_size = new_alligned_size;
                     mblock->alloc_size = size;
 
-                    pthread_mutex_unlock(&g_heap_mutex);
+                    recursive_mutex_unlock(&g_heap_mutex);
                     return auto_handle;
                 } else {
                     auto_unlock mm_handle new_handle = mm_alloc(size);
@@ -285,7 +249,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
                     memcpy(mm_lock(new_handle),mm_lock(old_handle),mm_size(old_handle));
 
                     mm_free(old_handle);
-                    pthread_mutex_unlock(&g_heap_mutex);
+                    recursive_mutex_unlock(&g_heap_mutex);
                     return new_handle;
                 }
 
@@ -293,13 +257,13 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
         }
     }
 
-    pthread_mutex_unlock(&g_heap_mutex);
+    recursive_mutex_unlock(&g_heap_mutex);
     return (mm_handle){0};
 }
 
 void* mm_lock(mm_handle handle){
     if(handle.info && handle.info->huid == handle.huid){
-        pthread_mutex_lock(&handle.info->lock);
+        recursive_mutex_lock(&handle.info->lock);
         return handle.info->ptr;
     }
 
@@ -308,7 +272,7 @@ void* mm_lock(mm_handle handle){
 
 void mm_unlock(mm_handle handle){
     if(handle.info && handle.info->huid == handle.huid){
-        pthread_mutex_unlock(&handle.info->lock);
+        recursive_mutex_unlock(&handle.info->lock);
     }
 }
 
@@ -356,6 +320,27 @@ atomic_int mm_get_refcount(mm_handle handle){
         return auto_handle.info->refcount.counter;
     }
     return -1;
+}
+
+int mm_set_metadata(mm_handle handle, enum mm_metadata_blocks block, uintptr_t data){
+    mm_assert(block < MM_HANDLE_META_MAX && block >= 0);
+
+    auto_unlock mm_handle auto_handle = handle;
+    if(mm_lock(auto_handle)){
+        auto_handle.info->metadata[block] = data;
+        return 0;
+    }
+    return 1;
+}
+
+uintptr_t mm_get_metadata(mm_handle handle, enum mm_metadata_blocks block){
+    mm_assert(block < MM_HANDLE_META_MAX && block >= 0);
+
+    auto_unlock mm_handle auto_handle = handle;
+    if(mm_lock(auto_handle)){
+        return auto_handle.info->metadata[block];
+    }
+    mm_assert(0 && "Invalid handle!");
 }
 
 mm_handle mm_incref(mm_handle handle, void* udata){
