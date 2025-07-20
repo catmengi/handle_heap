@@ -33,7 +33,7 @@ void* mm_get_refcount_ctx(mm_handle handle); //get handle's context for callback
 atomic_int mm_get_refcount(mm_handle handle); //get handle refcount
 size_t mm_size(mm_handle handle); //returns allocation size of handle (not alligned_size)
 
-mm_handle mm_incref(mm_handle handle, void* udata); //increse refcount and call incref callback
+mm_handle mm_incref(mm_handle handle, void* udata); //increse refcount and call incref callback, return same handle, can be used like this void* ptr = mm_lock(mm_incref(handle,"some void* data that u can use"));
 void mm_decref(mm_handle handle, void* udata); //decrese refcount and call decref callback, if refcount reaches 0 -> call mm_free!
 void mm_free(mm_handle handle); //call zero callback and free memory that handle use. If zero callback return error (NON 0 value) handle will not be freed
 void mm_zeroout(mm_handle handle); //calls zero callback, if zero callback returned success(0), then drops refcount to 0
