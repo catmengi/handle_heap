@@ -144,15 +144,16 @@ static void compact_heap(){
     for(int i = 0; i < sizeof(sorted_indices) / sizeof(sorted_indices[0]); i++){
 
         //we can be sure that number of elements in sorted_indices == number of elements in g_handle_metablocks
-        if(g_handle_metablocks[sorted_indices[i]].used && move_to != g_handle_metablocks[sorted_indices[i]].ptr){
-            recursive_mutex_lock(&g_handle_metablocks[sorted_indices[i]].lock);
+        if(g_handle_metablocks[sorted_indices[i]].used && g_handle_metablocks[sorted_indices[i]].ptr && move_to != g_handle_metablocks[sorted_indices[i]].ptr){
+            if(recursive_mutex_trylock(&g_handle_metablocks[sorted_indices[i]].lock) == 0){
+                memmove(move_to,g_handle_metablocks[sorted_indices[i]].ptr,g_handle_metablocks[sorted_indices[i]].alligned_size);
+                g_handle_metablocks[sorted_indices[i]].ptr = move_to;
 
-            memmove(move_to,g_handle_metablocks[sorted_indices[i]].ptr,g_handle_metablocks[sorted_indices[i]].alligned_size);
-            g_handle_metablocks[sorted_indices[i]].ptr = move_to;
+                move_to += g_handle_metablocks[sorted_indices[i]].alligned_size;
 
-            move_to += g_handle_metablocks[sorted_indices[i]].alligned_size;
+                recursive_mutex_unlock(&g_handle_metablocks[sorted_indices[i]].lock);
 
-            recursive_mutex_unlock(&g_handle_metablocks[sorted_indices[i]].lock);
+            } else move_to += g_handle_metablocks[sorted_indices[i]].alligned_size; //it can be done different, but i decided that move_to offseting should be done while locked if lock succeded!
         }
     }
 
@@ -162,7 +163,7 @@ static void compact_heap(){
 mm_handle mm_alloc(size_t size){
     mm_handle handle = {0};
 
-    if(size > 0){
+    if(size > 0 && mm_availiblemem() >= size){
         recursive_mutex_lock(&g_heap_mutex);
 
         if(g_blocks_availible > 0){
@@ -170,10 +171,8 @@ mm_handle mm_alloc(size_t size){
             recursive_mutex_lock(&metablock->lock);
 
 
-            for(int i = 0; i < 2; i++){
-                if((metablock->ptr = find_free_heap_start(size)) == NULL){
-                    compact_heap();
-                }
+            while((metablock->ptr = find_free_heap_start(size)) == NULL){
+                compact_heap();
             }
 
             if(metablock->ptr){
@@ -189,7 +188,7 @@ mm_handle mm_alloc(size_t size){
 
                 handle.huid = metablock->huid;
                 handle.info = metablock;
-            }else metablock->used = false;
+            }else {assert(0);metablock->used = false;}
 
             recursive_mutex_unlock(&metablock->lock);
         }
