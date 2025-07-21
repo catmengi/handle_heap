@@ -44,6 +44,9 @@ typedef struct{
     mm_handle_metablock* info;
 }mm_handle;
 
+#ifdef ESP_PLATFORM
+void mm_init(); //inits handle heap!
+#endif
 mm_handle mm_alloc(size_t size); //allocate memory sized by size, allocation is alligned based on internal define of HANDLE_HEAP_MINALLOC
 
 mm_handle mm_realloc(mm_handle handle, size_t size); //realloc handle to size

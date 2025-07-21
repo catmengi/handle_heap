@@ -63,9 +63,11 @@ static int* g_sorted_indices;
 static uint8_t* g_handle_heap;
 #endif
 
-__attribute__((constructor))
-static void init_handle_heap(void){
-
+#ifndef ESP_PLATFORM
+__attribute__((constructor(101)))
+static
+#endif
+void mm_init(void){
     #ifdef PLACE_IN_HEAP
     g_handle_metablocks = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks)); mm_assert(g_handle_metablocks);
     g_sorted_indices = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices)); mm_assert(g_sorted_indices);
@@ -336,7 +338,7 @@ void* mm_get_refcount_ctx(mm_handle handle){
     return ret;
 }
 
-int mm_get_refcount(mm_handle handle){
+atomic_int mm_get_refcount(mm_handle handle){
     int ret = -1;
     if(mm_lock(handle)){
         ret =  handle.info->refcount.counter;
