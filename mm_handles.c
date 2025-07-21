@@ -188,7 +188,7 @@ mm_handle mm_alloc(size_t size){
 
                 handle.huid = metablock->huid;
                 handle.info = metablock;
-            }else {assert(0);metablock->used = false;}
+            }else metablock->used = false;
 
             recursive_mutex_unlock(&metablock->lock);
         }
