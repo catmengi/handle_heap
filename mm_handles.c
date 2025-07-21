@@ -70,6 +70,8 @@ static
 void mm_init(void){
     #ifdef PLACE_IN_HEAP
     g_handle_metablocks = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks)); mm_assert(g_handle_metablocks);
+    memset(g_handle_metablocks,0,(HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks));
+
     g_sorted_indices = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices)); mm_assert(g_sorted_indices);
     g_handle_heap = alloc_memory((HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(g_handle_heap);
     #endif
