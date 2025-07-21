@@ -131,7 +131,7 @@ static int compactor_sort(const void* a, const void* b){
 static void compact_heap(){
     recursive_mutex_lock(&g_heap_mutex);
 
-    int sorted_indices[sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0])];
+    EXT_RAM_BSS_ATTR int sorted_indices[sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0])] = {0};
     for(int i = 0; i < sizeof(sorted_indices) / sizeof(sorted_indices[0]); i++){
         sorted_indices[i] = i; //initialise this array first
     }
