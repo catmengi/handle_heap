@@ -68,7 +68,7 @@ int mm_set_metadata(mm_handle handle, enum mm_metadata_blocks block, uintptr_t d
 
 void* mm_get_refcount_ctx(mm_handle handle); //get handle's context for callbacks set by mm_set_refcount_ctx
 
-atomic_int mm_get_refcount(mm_handle handle); //get handle refcount
+int mm_get_refcount(mm_handle handle); //get handle refcount
 
 uintptr_t mm_get_metadata(mm_handle handle, enum mm_metadata_blocks block); //get handle metadata block
 

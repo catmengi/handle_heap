@@ -336,7 +336,7 @@ void* mm_get_refcount_ctx(mm_handle handle){
     return ret;
 }
 
-atomic_int mm_get_refcount(mm_handle handle){
+int mm_get_refcount(mm_handle handle){
     int ret = -1;
     if(mm_lock(handle)){
         ret =  handle.info->refcount.counter;
