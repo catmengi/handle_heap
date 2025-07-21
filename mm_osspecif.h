@@ -35,6 +35,7 @@
 #include <stdio.h>
 
 #ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
 #define PLACE_IN_HEAP
 #endif
 
