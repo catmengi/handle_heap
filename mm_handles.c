@@ -50,7 +50,7 @@ typedef struct _mm_handle_metablock{
     bool used;
 }mm_handle_metablock;
 
-static recursive_mutex_t g_heap_mutex = PTHREAD_MUTEX_INITIALIZER;
+static recursive_mutex_t g_heap_mutex;
 static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
 static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
 
