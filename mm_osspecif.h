@@ -74,7 +74,11 @@ static inline void random_buf(void* buf, size_t nbytes){
 
 #ifdef PLACE_IN_HEAP
 static void* alloc_memory(size_t size){
+    #ifndef ESP_PLATFORM
     return malloc(size);
+    #else
+    return heap_caps_malloc(size,MALLOC_CAP_SPIRAM);
+    #endif
 }
 #endif
 
