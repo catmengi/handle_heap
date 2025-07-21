@@ -41,29 +41,45 @@
 
 //OS SPECIFIC CODE!  ======================================================================================================
 
-typedef struct{
-    pthread_mutex_t impl;
-}recursive_mutex_t;
+#ifndef ESP_PLATFORM
+#define recursive_mutex_t pthread_mutex_t
 
 static inline void recursive_mutex_init(recursive_mutex_t* mutex){
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
     pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
-    pthread_mutex_init(&mutex->impl,&attr);
+    pthread_mutex_init(mutex,&attr);
     pthread_mutexattr_destroy(&attr);
 }
 
+#define recursive_mutex_lock pthread_mutex_lock
+#define recursive_mutex_unlock pthread_mutex_unlock
+#define recursive_mutex_trylock pthread_mutex_trylock
+#else
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+typedef struct{
+    SemaphoreHandle_t mutex;
+    StaticSemaphore_t mutex_buf;
+}recursive_mutex_t;
+
+static inline void recursive_mutex_init(recursive_mutex_t* mutex){
+    mutex->mutex = xSemaphoreCreateRecursiveMutexStatic(&mutex->mutex_buf);
+}
+
 static inline void recursive_mutex_lock(recursive_mutex_t* mutex){
-    pthread_mutex_lock(&mutex->impl);
+    assert(xSemaphoreTakeRecursive(mutex->mutex,portMAX_DELAY) == pdTRUE);
 }
-
 static inline void recursive_mutex_unlock(recursive_mutex_t* mutex){
-    pthread_mutex_unlock(&mutex->impl);
+    xSemaphoreGiveRecursive(mutex->mutex);
+}
+static inline int recursive_mutex_trylock(recursive_mutex_t* mutex){
+    if(xSemaphoreTakeRecursive(mutex->mutex,0) == pdTRUE)
+        return 0;
+    return 1;
 }
 
-static inline int recursive_mutex_trylock(recursive_mutex_t* mutex){
-    return pthread_mutex_trylock(&mutex->impl);
-}
+#endif
 
 static inline void qsort_impl(void* base, size_t num, size_t size, int (*compare) (const void *, const void *)){
     qsort(base,num,size,compare);

@@ -69,11 +69,14 @@ static
 #endif
 void mm_init(void){
     #ifdef PLACE_IN_HEAP
-    g_handle_metablocks = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks)); mm_assert(g_handle_metablocks);
+    void* heap_data = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks) +
+                        (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices) + (HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(heap_data);
+
+    g_handle_metablocks = heap_data; heap_data += (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks);
     memset(g_handle_metablocks,0,(HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks));
 
-    g_sorted_indices = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices)); mm_assert(g_sorted_indices);
-    g_handle_heap = alloc_memory((HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(g_handle_heap);
+    g_sorted_indices = heap_data; heap_data += (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices);
+    g_handle_heap = heap_data;
     #endif
 
     recursive_mutex_init(&g_heap_mutex);
@@ -418,9 +421,8 @@ void mm_zeroout(mm_handle handle){
 }
 
 void mm_free(mm_handle handle){
+    recursive_mutex_lock(&g_heap_mutex);
     if(mm_lock(handle)){
-        recursive_mutex_lock(&g_heap_mutex);
-
         mm_handle_metablock* mblock = handle.info;
 
         int disallow_further_free = 0; //reversed logic beucase zero callback should return NON 0 value if error
@@ -437,9 +439,9 @@ void mm_free(mm_handle handle){
             g_blocks_availible += alligned_size / HANDLE_HEAP_MINALLOC; //return N blocks to heap as availible
         }
 
-        recursive_mutex_unlock(&g_heap_mutex);
         recursive_mutex_unlock(&mblock->lock);
     }
+    recursive_mutex_unlock(&g_heap_mutex);
 }
 
 size_t mm_availiblemem(){
