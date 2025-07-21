@@ -34,6 +34,10 @@
 
 #include <stdio.h>
 
+#ifndef EXT_RAM_BSS_ATTR
+#define EXT_RAM_BSS_ATTR
+#endif
+
 //OS SPECIFIC CODE!  ======================================================================================================
 
 typedef struct{

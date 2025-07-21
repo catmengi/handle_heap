@@ -50,11 +50,11 @@ typedef struct _mm_handle_metablock{
     bool used;
 }mm_handle_metablock;
 
-static recursive_mutex_t g_heap_mutex;
-static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
-static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
+EXT_RAM_BSS_ATTR static recursive_mutex_t g_heap_mutex;
+EXT_RAM_BSS_ATTR static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
+EXT_RAM_BSS_ATTR static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
 
-static size_t g_blocks_availible = sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]);
+EXT_RAM_BSS_ATTR static size_t g_blocks_availible = sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]);
 
 __attribute__((constructor))
 static void init_metablocks_lock(void){
