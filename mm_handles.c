@@ -50,17 +50,31 @@ typedef struct _mm_handle_metablock{
     bool used;
 }mm_handle_metablock;
 
-EXT_RAM_BSS_ATTR static recursive_mutex_t g_heap_mutex;
-EXT_RAM_BSS_ATTR static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
-EXT_RAM_BSS_ATTR static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
+static recursive_mutex_t g_heap_mutex;
+static size_t g_blocks_availible = HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC;
 
-EXT_RAM_BSS_ATTR static size_t g_blocks_availible = sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]);
+#ifndef PLACE_IN_HEAP
+static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
+static int g_sorted_indices[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
+static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
+#else
+static mm_handle_metablock* g_handle_metablocks;
+static int* g_sorted_indices;
+static uint8_t* g_handle_heap;
+#endif
 
 __attribute__((constructor))
-static void init_metablocks_lock(void){
+static void init_handle_heap(void){
+
+    #ifdef PLACE_IN_HEAP
+    g_handle_metablocks = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks)); mm_assert(g_handle_metablocks);
+    g_sorted_indices = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices)); mm_assert(g_sorted_indices);
+    g_handle_heap = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_heap)); mm_assert(g_handle_heap);
+    #endif
+
     recursive_mutex_init(&g_heap_mutex);
 
-    for(int i = 0; i < sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]); i++){
+    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
         recursive_mutex_init(&g_handle_metablocks[i].lock);
     }
 }
@@ -77,7 +91,7 @@ static mm_handle_metablock* find_free_metablock(){
 
     mm_handle_metablock* free_block = NULL;
 
-    for(int i = 0; i < sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]); i++){
+    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
         if(recursive_mutex_trylock(&g_handle_metablocks[i].lock) == 0){
             if(g_handle_metablocks[i].used == false){
                 free_block = &g_handle_metablocks[i];
@@ -101,7 +115,7 @@ static uint8_t* find_free_heap_start(int size){
     int alligned_size = nextby(size, HANDLE_HEAP_MINALLOC);
 
 
-    for(int i = 0; i < sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]); i++){
+    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
         if(g_handle_metablocks[i].used == true){
             if(free_start <= g_handle_metablocks[i].ptr){
                 free_start = g_handle_metablocks[i].ptr + g_handle_metablocks[i].alligned_size;
@@ -131,29 +145,28 @@ static int compactor_sort(const void* a, const void* b){
 static void compact_heap(){
     recursive_mutex_lock(&g_heap_mutex);
 
-    EXT_RAM_BSS_ATTR int sorted_indices[sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0])] = {0};
-    for(int i = 0; i < sizeof(sorted_indices) / sizeof(sorted_indices[0]); i++){
-        sorted_indices[i] = i; //initialise this array first
+    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+        g_sorted_indices[i] = i; //initialise this array first
     }
 
     //then do qsort on it, but not based on index, instead being based on g_handle_metablocks[index].ptr
-    qsort_impl(sorted_indices,sizeof(sorted_indices) / sizeof(sorted_indices[0]), sizeof(sorted_indices[0]),compactor_sort);
+    qsort_impl(g_sorted_indices,HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC, sizeof(*g_sorted_indices),compactor_sort);
 
-    //now loop on sorted_indices to compact heap
+    //now loop on g_sorted_indices to compact heap
     uint8_t* move_to = &g_handle_heap[0]; //move block to that pointer, then increase it by alligned_size
-    for(int i = 0; i < sizeof(sorted_indices) / sizeof(sorted_indices[0]); i++){
+    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
 
-        //we can be sure that number of elements in sorted_indices == number of elements in g_handle_metablocks
-        if(g_handle_metablocks[sorted_indices[i]].used && g_handle_metablocks[sorted_indices[i]].ptr && move_to != g_handle_metablocks[sorted_indices[i]].ptr){
-            if(recursive_mutex_trylock(&g_handle_metablocks[sorted_indices[i]].lock) == 0){
-                memmove(move_to,g_handle_metablocks[sorted_indices[i]].ptr,g_handle_metablocks[sorted_indices[i]].alligned_size);
-                g_handle_metablocks[sorted_indices[i]].ptr = move_to;
+        //we can be sure that number of elements in g_sorted_indices == number of elements in g_handle_metablocks
+        if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
+            if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0){
+                memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
+                g_handle_metablocks[g_sorted_indices[i]].ptr = move_to;
 
-                move_to += g_handle_metablocks[sorted_indices[i]].alligned_size;
+                move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size;
 
-                recursive_mutex_unlock(&g_handle_metablocks[sorted_indices[i]].lock);
+                recursive_mutex_unlock(&g_handle_metablocks[g_sorted_indices[i]].lock);
 
-            } else move_to += g_handle_metablocks[sorted_indices[i]].alligned_size; //it can be done different, but i decided that move_to offseting should be done while locked if lock succeded!
+            } else move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size; //it can be done different, but i decided that move_to offseting should be done while locked if lock succeded!
         }
     }
 
@@ -237,7 +250,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
                 uint8_t* check_is_empty = mblock->ptr + new_alligned_size;
                 bool unused = true;
 
-                for(int i = 0; i < sizeof(g_handle_metablocks) / sizeof(g_handle_metablocks[0]); i++){
+                for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
                     if(g_handle_metablocks[i].ptr == check_is_empty){
                         unused = false;
                         break;

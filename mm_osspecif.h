@@ -34,8 +34,8 @@
 
 #include <stdio.h>
 
-#ifndef EXT_RAM_BSS_ATTR
-#define EXT_RAM_BSS_ATTR
+#ifdef ESP_PLATFORM
+#define PLACE_IN_HEAP
 #endif
 
 //OS SPECIFIC CODE!  ======================================================================================================
@@ -71,6 +71,12 @@ static inline void qsort_impl(void* base, size_t num, size_t size, int (*compare
 static inline void random_buf(void* buf, size_t nbytes){
     arc4random_buf(buf,nbytes);
 }
+
+#ifdef PLACE_IN_HEAP
+static void* alloc_memory(size_t size){
+    return malloc(size);
+}
+#endif
 
 #define mm_assert assert
 //==========================================================================================================================
