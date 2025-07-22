@@ -151,7 +151,6 @@ static int compactor_sort(const void* a, const void* b){
 }
 
 static void compact_heap(){
-    printf("compact in proccess!\n");
     recursive_mutex_lock(&g_heap_mutex);
 
     for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
