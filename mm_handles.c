@@ -32,7 +32,7 @@ typedef struct _mm_handle_metablock{
     uintptr_t metadata[MM_HANDLE_META_MAX]; //userdefined metadata;
 
     int alloc_size; //size of memory controlled by handle
-    short alligned_size; //size of allocation in blocks
+    int alligned_size; //size of allocation in blocks
     uint8_t* ptr;     //pointer to chunk of memory
 
     struct{
@@ -51,7 +51,8 @@ typedef struct _mm_handle_metablock{
 }mm_handle_metablock;
 
 static recursive_mutex_t g_heap_mutex;
-static size_t g_blocks_availible = HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC;
+static size_t g_metablocblocks_availible = HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC;
+static size_t g_heap_availible = HANDLE_HEAP_SIZE;
 
 #ifndef PLACE_IN_HEAP
 static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
@@ -150,6 +151,7 @@ static int compactor_sort(const void* a, const void* b){
 }
 
 static void compact_heap(){
+    printf("compact in proccess!\n");
     recursive_mutex_lock(&g_heap_mutex);
 
     for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
@@ -167,13 +169,14 @@ static void compact_heap(){
         if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
             if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0){
                 memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
+                g_handle_metablocks[g_sorted_indices[i]].alligned_size = g_handle_metablocks[g_sorted_indices[i]].alloc_size; //remove alligment so we can free some bytes by the cost of metablocks
                 g_handle_metablocks[g_sorted_indices[i]].ptr = move_to;
 
-                move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size;
 
                 recursive_mutex_unlock(&g_handle_metablocks[g_sorted_indices[i]].lock);
 
-            } else move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size; //it can be done different, but i decided that move_to offseting should be done while locked if lock succeded!
+            }
+            move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size;
         }
     }
 
@@ -183,10 +186,10 @@ static void compact_heap(){
 mm_handle mm_alloc(size_t size){
     mm_handle handle = {0};
 
-    if(size > 0 && mm_availiblemem() >= size){
+    if(size > 0){
         recursive_mutex_lock(&g_heap_mutex);
 
-        if(g_blocks_availible > 0){
+        if(mm_availiblemem() >= size){
             mm_handle_metablock* metablock = find_free_metablock(); mm_assert(metablock); //this should NEVER fail; find_free_metablock will mark metablock as used
             recursive_mutex_lock(&metablock->lock);
 
@@ -202,7 +205,9 @@ mm_handle mm_alloc(size_t size){
                 metablock->alloc_size = size;
 
                 metablock->alligned_size = nextby(metablock->alloc_size,HANDLE_HEAP_MINALLOC);
-                g_blocks_availible -= (metablock->alligned_size / HANDLE_HEAP_MINALLOC);
+
+                g_heap_availible -= metablock->alloc_size;
+                g_metablocblocks_availible--;
 
                 random_buf(&metablock->huid,sizeof(metablock->huid));
 
@@ -245,9 +250,12 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
             return handle;
         } else {
             if(mblock->alligned_size > new_alligned_size){
+                size_t size_diff = mblock->alloc_size - size; //we can be sure it is bigger
+
                 mblock->alligned_size = new_alligned_size;
                 mblock->alloc_size = size;
 
+                g_heap_availible += size_diff;
                 recursive_mutex_unlock(&g_heap_mutex);
                 mm_unlock(handle);
                 return handle;
@@ -255,6 +263,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
 
             if(mblock->alligned_size < new_alligned_size){
                 uint8_t* check_is_empty = mblock->ptr + new_alligned_size;
+                size_t size_diff = size - mblock->alloc_size;
                 bool unused = true;
 
                 for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
@@ -268,6 +277,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
                     mblock->alligned_size = new_alligned_size;
                     mblock->alloc_size = size;
 
+                    g_heap_availible -= size_diff;
                     recursive_mutex_unlock(&g_heap_mutex);
                     mm_unlock(handle);
                     return handle;
@@ -293,8 +303,16 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
     return (mm_handle){0};
 }
 
+static inline int is_handle_valid(mm_handle h){
+    int ret = 0;
+    if(h.info && h.info->huid == h.huid){
+        ret = 1;
+    }
+    return ret;
+}
+
 void* mm_lock(mm_handle handle){
-    if(handle.info && handle.info->huid == handle.huid){
+    if(is_handle_valid(handle)){
         recursive_mutex_lock(&handle.info->lock);
         return handle.info->ptr;
     }
@@ -303,7 +321,7 @@ void* mm_lock(mm_handle handle){
 }
 
 void mm_unlock(mm_handle handle){
-    if(handle.info && handle.info->huid == handle.huid){
+    if(is_handle_valid(handle)){
         recursive_mutex_unlock(&handle.info->lock);
     }
 }
@@ -436,7 +454,8 @@ void mm_free(mm_handle handle){
             size_t alligned_size = mblock->alligned_size;
 
             mblock->used = false; //we are still holding the lock, so we can do this
-            g_blocks_availible += alligned_size / HANDLE_HEAP_MINALLOC; //return N blocks to heap as availible
+            g_metablocblocks_availible++; //add as metablock as free to counter;
+            g_heap_availible += mblock->alloc_size; //add memory as free to counter;
         }
 
         recursive_mutex_unlock(&mblock->lock);
@@ -446,7 +465,10 @@ void mm_free(mm_handle handle){
 
 size_t mm_availiblemem(){
     recursive_mutex_lock(&g_heap_mutex);
-    size_t availib  = g_blocks_availible * HANDLE_HEAP_MINALLOC;
+    size_t availib = 0;
+    if(g_metablocblocks_availible > 0){
+        availib = g_heap_availible;
+    }
     recursive_mutex_unlock(&g_heap_mutex);
 
     return availib;
