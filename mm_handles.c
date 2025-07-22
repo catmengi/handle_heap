@@ -167,8 +167,8 @@ static void compact_heap(){
         //we can be sure that number of elements in g_sorted_indices == number of elements in g_handle_metablocks
         if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
             if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0){
-                memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
                 g_handle_metablocks[g_sorted_indices[i]].alligned_size = g_handle_metablocks[g_sorted_indices[i]].alloc_size; //remove alligment so we can free some bytes by the cost of metablocks
+                memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
                 g_handle_metablocks[g_sorted_indices[i]].ptr = move_to;
 
 
