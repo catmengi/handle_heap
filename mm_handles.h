@@ -29,7 +29,8 @@
 #include "mm_osspecif.h"
 
 #define HANDLE_HEAP_SIZE (1 * 1024 * 1024)
-#define HANDLE_HEAP_MINALLOC 128
+#define HANDLE_HEAP_DEFAULT_ALLIGMENT 128 //mm will allocate memory allocated by this define, after compaction it will shrink to size, this may be usefull for realloc
+#define HANDLE_HEAP_METABLOCK_AMMOUNT HANDLE_HEAP_SIZE / HANDLE_HEAP_DEFAULT_ALLIGMENT //you can fine tune this based on your statistics
 
 typedef struct _mm_handle_metablock mm_handle_metablock;
 

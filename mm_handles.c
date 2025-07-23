@@ -51,12 +51,12 @@ typedef struct _mm_handle_metablock{
 }mm_handle_metablock;
 
 static recursive_mutex_t g_heap_mutex;
-static size_t g_metablocblocks_availible = HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC;
+static size_t g_metablocblocks_availible = HANDLE_HEAP_METABLOCK_AMMOUNT;
 static size_t g_heap_availible = HANDLE_HEAP_SIZE;
 
 #ifndef PLACE_IN_HEAP
-static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
-static int g_sorted_indices[HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC] = {0};
+static mm_handle_metablock g_handle_metablocks[HANDLE_HEAP_METABLOCK_AMMOUNT] = {0};
+static int g_sorted_indices[HANDLE_HEAP_METABLOCK_AMMOUNT] = {0};
 static uint8_t g_handle_heap[HANDLE_HEAP_SIZE] = {0};
 #else
 static mm_handle_metablock* g_handle_metablocks;
@@ -70,19 +70,19 @@ static
 #endif
 void mm_init(void){
     #ifdef PLACE_IN_HEAP
-    void* heap_data = alloc_memory((HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks) +
-                        (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices) + (HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(heap_data);
+    void* heap_data = alloc_memory((HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks) +
+                        (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_sorted_indices) + (HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(heap_data);
 
-    g_handle_metablocks = heap_data; heap_data += (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks);
-    memset(g_handle_metablocks,0,(HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_handle_metablocks));
+    g_handle_metablocks = heap_data; heap_data += (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks);
+    memset(g_handle_metablocks,0,(HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks));
 
-    g_sorted_indices = heap_data; heap_data += (HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC) * sizeof(*g_sorted_indices);
+    g_sorted_indices = heap_data; heap_data += (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_sorted_indices);
     g_handle_heap = heap_data;
     #endif
 
     recursive_mutex_init(&g_heap_mutex);
 
-    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+    for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
         recursive_mutex_init(&g_handle_metablocks[i].lock);
     }
 }
@@ -99,7 +99,7 @@ static mm_handle_metablock* find_free_metablock(){
 
     mm_handle_metablock* free_block = NULL;
 
-    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+    for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
         if(recursive_mutex_trylock(&g_handle_metablocks[i].lock) == 0){
             if(g_handle_metablocks[i].used == false){
                 free_block = &g_handle_metablocks[i];
@@ -120,10 +120,10 @@ static uint8_t* find_free_heap_start(int size){
     recursive_mutex_lock(&g_heap_mutex);
 
     uint8_t* free_start = &g_handle_heap[0];
-    int alligned_size = nextby(size, HANDLE_HEAP_MINALLOC);
+    int alligned_size = nextby(size, HANDLE_HEAP_DEFAULT_ALLIGMENT);
 
 
-    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+    for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
         if(g_handle_metablocks[i].used == true){
             if(free_start <= g_handle_metablocks[i].ptr){
                 free_start = g_handle_metablocks[i].ptr + g_handle_metablocks[i].alligned_size;
@@ -153,16 +153,16 @@ static int compactor_sort(const void* a, const void* b){
 static void compact_heap(){
     recursive_mutex_lock(&g_heap_mutex);
 
-    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+    for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
         g_sorted_indices[i] = i; //initialise this array first
     }
 
     //then do qsort on it, but not based on index, instead being based on g_handle_metablocks[index].ptr
-    qsort_impl(g_sorted_indices,HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC, sizeof(*g_sorted_indices),compactor_sort);
+    qsort_impl(g_sorted_indices,HANDLE_HEAP_METABLOCK_AMMOUNT, sizeof(*g_sorted_indices),compactor_sort);
 
     //now loop on g_sorted_indices to compact heap
     uint8_t* move_to = &g_handle_heap[0]; //move block to that pointer, then increase it by alligned_size
-    for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+    for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
 
         //we can be sure that number of elements in g_sorted_indices == number of elements in g_handle_metablocks
         if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
@@ -203,7 +203,7 @@ mm_handle mm_alloc(size_t size){
 
                 metablock->alloc_size = size;
 
-                metablock->alligned_size = nextby(metablock->alloc_size,HANDLE_HEAP_MINALLOC);
+                metablock->alligned_size = nextby(metablock->alloc_size,HANDLE_HEAP_DEFAULT_ALLIGMENT);
 
                 g_heap_availible -= metablock->alloc_size;
                 g_metablocblocks_availible--;
@@ -237,7 +237,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
 
     if(mm_lock(handle) && size != 0){
 
-        int new_alligned_size = nextby(size,HANDLE_HEAP_MINALLOC);
+        int new_alligned_size = nextby(size,HANDLE_HEAP_DEFAULT_ALLIGMENT);
 
         mm_handle_metablock* mblock = handle.info;
 
@@ -265,7 +265,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size){
                 size_t size_diff = size - mblock->alloc_size;
                 bool unused = true;
 
-                for(int i = 0; i < HANDLE_HEAP_SIZE / HANDLE_HEAP_MINALLOC; i++){
+                for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
                     if(g_handle_metablocks[i].ptr == check_is_empty){
                         unused = false;
                         break;
