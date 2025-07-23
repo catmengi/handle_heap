@@ -450,8 +450,6 @@ void mm_free(mm_handle handle){
         if(disallow_further_free == 0){
             random_buf(&mblock->huid,sizeof(mblock->huid)); //invalidate previos HUID
 
-            size_t alligned_size = mblock->alligned_size;
-
             mblock->used = false; //we are still holding the lock, so we can do this
             g_metablocblocks_availible++; //add as metablock as free to counter;
             g_heap_availible += mblock->alloc_size; //add memory as free to counter;
