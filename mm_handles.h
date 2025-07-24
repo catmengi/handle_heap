@@ -54,7 +54,7 @@ mm_handle mm_realloc(mm_handle handle, size_t size); //realloc handle to size
 
 void* mm_lock(mm_handle handle); //locks handle, prevents this block from accessed or being moved from another thread;
 
-void mm_unlock(mm_handle handle);//unlocks handle
+mm_handle mm_unlock(mm_handle handle);//unlocks handle. return handle, can be used like this: mm_decref(mm_unlock(handle),"some void* data");
 
 size_t mm_size(mm_handle handle); //returns allocation size of handle (not alligned_size)
 

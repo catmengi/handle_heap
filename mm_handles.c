@@ -319,10 +319,11 @@ void* mm_lock(mm_handle handle){
     return NULL;
 }
 
-void mm_unlock(mm_handle handle){
+mm_handle mm_unlock(mm_handle handle){
     if(is_handle_valid(handle)){
         recursive_mutex_unlock(&handle.info->lock);
     }
+    return handle;
 }
 
 void mm_set_incref_cb(mm_handle handle, void (*incref)(mm_handle handle, void* udata)){
