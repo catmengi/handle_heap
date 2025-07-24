@@ -71,7 +71,7 @@ static
 void mm_init(void){
     #ifdef PLACE_IN_HEAP
     void* heap_data = alloc_memory((HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks) +
-                        (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_sorted_indices) + (HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(heap_data);
+    (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_sorted_indices) + (HANDLE_HEAP_SIZE) * sizeof(*g_handle_heap)); mm_assert(heap_data);
 
     g_handle_metablocks = heap_data; heap_data += (HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks);
     memset(g_handle_metablocks,0,(HANDLE_HEAP_METABLOCK_AMMOUNT) * sizeof(*g_handle_metablocks));
@@ -234,72 +234,34 @@ size_t mm_size(mm_handle handle){
 
 mm_handle mm_realloc(mm_handle handle, size_t size){
     recursive_mutex_lock(&g_heap_mutex);
-
-    if(mm_lock(handle) && size != 0){
-
-        int new_alligned_size = nextby(size,HANDLE_HEAP_DEFAULT_ALLIGMENT);
-
-        mm_handle_metablock* mblock = handle.info;
-
-        if(mblock->alligned_size == new_alligned_size){
-            mblock->alloc_size = size;
-
-            recursive_mutex_unlock(&g_heap_mutex);
-            mm_unlock(handle);
-            return handle;
-        } else {
-            if(mblock->alligned_size > new_alligned_size){
-                size_t size_diff = mblock->alloc_size - size; //we can be sure it is bigger
-
-                mblock->alligned_size = new_alligned_size;
-                mblock->alloc_size = size;
-
-                g_heap_availible += size_diff;
-                recursive_mutex_unlock(&g_heap_mutex);
-                mm_unlock(handle);
-                return handle;
-            }
-
-            if(mblock->alligned_size < new_alligned_size){
-                uint8_t* check_is_empty = mblock->ptr + new_alligned_size;
-                size_t size_diff = size - mblock->alloc_size;
-                bool unused = true;
-
-                for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
-                    if(g_handle_metablocks[i].ptr == check_is_empty){
-                        unused = false;
-                        break;
-                    }
-                }
-
-                if(unused){
-                    mblock->alligned_size = new_alligned_size;
-                    mblock->alloc_size = size;
-
-                    g_heap_availible -= size_diff;
-                    recursive_mutex_unlock(&g_heap_mutex);
-                    mm_unlock(handle);
-                    return handle;
-                } else {
-                    mm_handle new_handle = mm_alloc(size);
-                    mm_handle old_handle = handle; //copying this to properly unlock it in future
-
-                    memcpy(mm_lock(new_handle),mm_lock(old_handle),mm_size(old_handle));
-
-                    mm_unlock(new_handle);
-                    mm_unlock(old_handle);
-
-                    mm_free(old_handle);
-                    recursive_mutex_unlock(&g_heap_mutex);
-                    return new_handle;
-                }
-
-            }
-        }
+    mm_handle ret = {0};
+    if(size == 0){ //size == 0 ===> free, libc semantic
+        mm_free(handle);
+        goto exit;
     }
+    if(mm_size(handle) == size){
+        ret = handle;
+        goto exit;
+    }
+    ret = mm_alloc(size);
+    void* new_cpy = mm_lock(ret);
+    void* old_cpy = mm_lock(handle);
+    if(new_cpy == NULL){
+        mm_unlock(handle);
+        goto exit;
+    }
+    if(old_cpy == NULL){
+        mm_unlock(ret);
+        mm_free(ret);
+        ret = (mm_handle){0};
+    }
+    memcpy(new_cpy,old_cpy,mm_size(handle));
+    mm_unlock(ret);
+    mm_unlock(handle);
 
+    exit:
     recursive_mutex_unlock(&g_heap_mutex);
-    return (mm_handle){0};
+    return ret;
 }
 
 static inline int is_handle_valid(mm_handle h){
@@ -455,7 +417,6 @@ void mm_free(mm_handle handle){
             g_metablocblocks_availible++; //add as metablock as free to counter;
             g_heap_availible += mblock->alloc_size; //add memory as free to counter;
         }
-
         recursive_mutex_unlock(&mblock->lock);
     }
     recursive_mutex_unlock(&g_heap_mutex);
