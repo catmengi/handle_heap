@@ -43,9 +43,10 @@ typedef struct _mm_handle_metablock{
         }callbacks;
 
         void* ctx;
-        atomic_int counter;
+        int counter;
     }refcount;
 
+    int lock_count;
     recursive_mutex_t lock;
     bool used;
 }mm_handle_metablock;
@@ -104,6 +105,7 @@ static mm_handle_metablock* find_free_metablock(){
             if(g_handle_metablocks[i].used == false){
                 free_block = &g_handle_metablocks[i];
                 free_block->used = true; //set this to used before mm_alloc, to prevent possible race-conditions
+                free_block->lock_count = 0;
 
                 recursive_mutex_unlock(&g_handle_metablocks[i].lock);
                 break;
@@ -166,7 +168,7 @@ static void compact_heap(){
 
         //we can be sure that number of elements in g_sorted_indices == number of elements in g_handle_metablocks
         if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
-            if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0){
+            if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0 && g_handle_metablocks[g_sorted_indices[i]].lock_count == 0){
                 g_handle_metablocks[g_sorted_indices[i]].alligned_size = g_handle_metablocks[g_sorted_indices[i]].alloc_size; //remove alligment so we can free some bytes by the cost of metablocks
                 memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
                 g_handle_metablocks[g_sorted_indices[i]].ptr = move_to;
@@ -275,6 +277,8 @@ static inline int is_handle_valid(mm_handle h){
 void* mm_lock(mm_handle handle){
     if(is_handle_valid(handle)){
         recursive_mutex_lock(&handle.info->lock);
+        ++handle.info->lock_count;
+
         return handle.info->ptr;
     }
 
@@ -283,6 +287,7 @@ void* mm_lock(mm_handle handle){
 
 mm_handle mm_unlock(mm_handle handle){
     if(is_handle_valid(handle)){
+        --handle.info->lock_count;
         recursive_mutex_unlock(&handle.info->lock);
     }
     return handle;
