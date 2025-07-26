@@ -32,7 +32,6 @@ typedef struct _mm_handle_metablock{
     uintptr_t metadata[MM_HANDLE_META_MAX]; //userdefined metadata;
 
     int alloc_size; //size of memory controlled by handle
-    int alligned_size; //size of allocation in blocks
     uint8_t* ptr;     //pointer to chunk of memory
 
     struct{
@@ -88,13 +87,6 @@ void mm_init(void){
     }
 }
 
-static uintptr_t nextby (uintptr_t value, uintptr_t by) {
-    if (value % by == 0) {
-        return value; // Already divisible by
-    }
-    return (value / by + 1) * by; // Calculate the next multiple of by
-}
-
 static mm_handle_metablock* find_free_metablock(){
     recursive_mutex_lock(&g_heap_mutex);
 
@@ -122,15 +114,14 @@ static uint8_t* find_free_heap_start(int size){
     recursive_mutex_lock(&g_heap_mutex);
 
     uint8_t* free_start = &g_handle_heap[0];
-    int alligned_size = nextby(size, HANDLE_HEAP_DEFAULT_ALLIGMENT);
 
 
     for(int i = 0; i < HANDLE_HEAP_METABLOCK_AMMOUNT; i++){
         if(g_handle_metablocks[i].used == true){
             if(free_start <= g_handle_metablocks[i].ptr){
-                free_start = g_handle_metablocks[i].ptr + g_handle_metablocks[i].alligned_size;
+                free_start = g_handle_metablocks[i].ptr + g_handle_metablocks[i].alloc_size;
 
-                if(free_start >= &g_handle_heap[HANDLE_HEAP_SIZE] || &g_handle_heap[HANDLE_HEAP_SIZE] - free_start < alligned_size) {
+                if(free_start >= &g_handle_heap[HANDLE_HEAP_SIZE] || &g_handle_heap[HANDLE_HEAP_SIZE] - free_start < size) {
                     recursive_mutex_unlock(&g_heap_mutex);
                     return NULL;
                 }
@@ -169,15 +160,14 @@ static void compact_heap(){
         //we can be sure that number of elements in g_sorted_indices == number of elements in g_handle_metablocks
         if(g_handle_metablocks[g_sorted_indices[i]].used && g_handle_metablocks[g_sorted_indices[i]].ptr && move_to != g_handle_metablocks[g_sorted_indices[i]].ptr){
             if(recursive_mutex_trylock(&g_handle_metablocks[g_sorted_indices[i]].lock) == 0 && g_handle_metablocks[g_sorted_indices[i]].lock_count == 0){
-                g_handle_metablocks[g_sorted_indices[i]].alligned_size = g_handle_metablocks[g_sorted_indices[i]].alloc_size; //remove alligment so we can free some bytes by the cost of metablocks
-                memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alligned_size);
+                memmove(move_to,g_handle_metablocks[g_sorted_indices[i]].ptr,g_handle_metablocks[g_sorted_indices[i]].alloc_size);
                 g_handle_metablocks[g_sorted_indices[i]].ptr = move_to;
 
 
                 recursive_mutex_unlock(&g_handle_metablocks[g_sorted_indices[i]].lock);
 
             }
-            move_to += g_handle_metablocks[g_sorted_indices[i]].alligned_size;
+            move_to += g_handle_metablocks[g_sorted_indices[i]].alloc_size;
         }
     }
 
@@ -204,8 +194,6 @@ mm_handle mm_alloc(size_t size){
                 memset(&metablock->refcount, 0, sizeof(metablock->refcount));
 
                 metablock->alloc_size = size;
-
-                metablock->alligned_size = nextby(metablock->alloc_size,HANDLE_HEAP_DEFAULT_ALLIGMENT);
 
                 g_heap_availible -= metablock->alloc_size;
                 g_metablocblocks_availible--;

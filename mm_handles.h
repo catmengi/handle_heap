@@ -29,8 +29,7 @@
 #include "mm_osspecif.h"
 
 #define HANDLE_HEAP_SIZE (1 * 1024 * 1024)
-#define HANDLE_HEAP_DEFAULT_ALLIGMENT 128 //mm will allocate memory allocated by this define, after compaction it will shrink to size, this may be usefull for realloc
-#define HANDLE_HEAP_METABLOCK_AMMOUNT HANDLE_HEAP_SIZE / HANDLE_HEAP_DEFAULT_ALLIGMENT //you can fine tune this based on your statistics
+#define HANDLE_HEAP_METABLOCK_AMMOUNT HANDLE_HEAP_SIZE / 128 //you can fine tune this based on your statistics
 
 typedef struct _mm_handle_metablock mm_handle_metablock;
 
@@ -48,7 +47,7 @@ typedef struct{
 #ifdef ESP_PLATFORM
 void mm_init(); //inits handle heap!
 #endif
-mm_handle mm_alloc(size_t size); //allocate memory sized by size, allocation is alligned based on internal define of HANDLE_HEAP_MINALLOC
+mm_handle mm_alloc(size_t size); //allocate region of memory sized size. If your platform requires aligned memory. please ALWAYS pass size as aligned
 
 mm_handle mm_realloc(mm_handle handle, size_t size); //realloc handle to size
 
@@ -56,9 +55,9 @@ void* mm_lock(mm_handle handle); //locks handle, prevents this block from access
 
 mm_handle mm_unlock(mm_handle handle);//unlocks handle. return handle, can be used like this: mm_decref(mm_unlock(handle),"some void* data");
 
-size_t mm_size(mm_handle handle); //returns allocation size of handle (not alligned_size)
+size_t mm_size(mm_handle handle); //returns allocation size of handle
 
-size_t mm_availiblemem(); //return ammount of availible memory in bytes!
+size_t mm_availiblemem(); //return ammount of availible memory in bytes! 0 if no memory or not metablocks availible
 
 void mm_set_incref_cb(mm_handle handle, void (*incref)(mm_handle handle, void* udata)); //sets handle callback on incref
 
